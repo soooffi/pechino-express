@@ -1,50 +1,70 @@
-from textblob import TextBlob
+import anthropic
 import pandas as pd
+import streamlit as st
+from collections import Counter
 
-POSITIVE_WORDS = [
-    "bello", "bellissimo", "fantastico", "ottimo", "stupendo", "meraviglioso",
-    "adoro", "amo", "perfetto", "eccellente", "incredibile", "emozionante",
-    "divertente", "spettacolare", "bomba", "epico", "top", "bravo", "bravissimi"
-]
-
-NEGATIVE_WORDS = [
-    "pessimo", "brutto", "orribile", "schifo", "deludente", "noia", "noioso",
-    "insopportabile", "odio", "terribile", "inutile", "peggio", "finito",
-    "ingiusto", "sopravvalutato", "teatrale"
-]
-
-def analyze_sentiment_italian(text):
-    text_lower = str(text).lower()
-    pos_count = sum(1 for w in POSITIVE_WORDS if w in text_lower)
-    neg_count = sum(1 for w in NEGATIVE_WORDS if w in text_lower)
-    italian_score = (pos_count - neg_count) * 0.3
+def analyze_sentiment_with_claude(text: str) -> tuple:
+    """Usa Claude AI per analizzare il sentiment di un testo italiano."""
     try:
-        blob = TextBlob(text)
-        blob_score = blob.sentiment.polarity * 0.7
-    except:
-        blob_score = 0
-    final_score = italian_score + blob_score
-    if final_score > 0.05:
-        label = "positivo"
-        emoji = "😊"
-    elif final_score < -0.05:
-        label = "negativo"
-        emoji = "😠"
-    else:
-        label = "neutro"
-        emoji = "😐"
-    return label, round(final_score, 3), emoji
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+        client = anthropic.Anthropic(api_key=api_key)
 
-def analyze_dataframe(df):
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=20,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""Analizza il sentiment di questo commento su Pechino Express.
+Rispondi SOLO con una di queste parole: positivo, negativo, neutro
+
+Commento: {text}"""
+                }
+            ]
+        )
+
+        label = message.content[0].text.strip().lower()
+        if label not in ["positivo", "negativo", "neutro"]:
+            label = "neutro"
+
+        score = {"positivo": 0.8, "negativo": -0.8, "neutro": 0.0}.get(label, 0.0)
+        emoji = {"positivo": "😊", "negativo": "😠", "neutro": "😐"}.get(label, "😐")
+
+        return label, score, emoji
+
+    except Exception as e:
+        # Fallback con parole chiave se l'AI non risponde
+        return _fallback_sentiment(text)
+
+def _fallback_sentiment(text: str) -> tuple:
+    """Analisi di riserva con parole chiave se Claude non è disponibile."""
+    POSITIVE_WORDS = ["bello", "bellissimo", "fantastico", "ottimo", "adoro", "perfetto",
+                      "incredibile", "emozionante", "spettacolare", "bomba", "epico", "bravo"]
+    NEGATIVE_WORDS = ["pessimo", "brutto", "orribile", "schifo", "deludente", "noia",
+                      "insopportabile", "odio", "terribile", "inutile", "peggio"]
+
+    text_lower = text.lower()
+    pos = sum(1 for w in POSITIVE_WORDS if w in text_lower)
+    neg = sum(1 for w in NEGATIVE_WORDS if w in text_lower)
+    score = (pos - neg) * 0.3
+
+    if score > 0.05:
+        return "positivo", score, "😊"
+    elif score < -0.05:
+        return "negativo", score, "😠"
+    return "neutro", 0.0, "😐"
+
+def analyze_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggiunge colonne di sentiment a un DataFrame di tweet."""
     df = df.copy().reset_index(drop=True)
-    labels = []
-    scores = []
-    emojis = []
+    labels, scores, emojis = [], [], []
+
     for text in df["text"]:
-        label, score, emoji = analyze_sentiment_italian(text)
+        label, score, emoji = analyze_sentiment_with_claude(text)
         labels.append(label)
         scores.append(score)
         emojis.append(emoji)
+
     df["sentiment"] = labels
     df["score"] = scores
     df["emoji"] = emojis
@@ -74,21 +94,17 @@ def get_sentiment_over_time(df):
 
 def get_word_frequency(df, top_n=30):
     stopwords = {
-        "il", "la", "lo", "le", "gli", "i", "un", "una", "uno",
-        "di", "da", "in", "su", "per", "con", "tra", "fra",
-        "e", "o", "ma", "che", "è", "si", "non", "mi", "ti",
-        "ci", "vi", "li", "le", "ne", "a", "ai", "al", "agli",
-        "del", "della", "dei", "delle", "degli", "questo", "questa",
-        "questi", "queste", "ho", "ha", "hanno", "sono", "era",
-        "stasera", "sempre", "anche", "più", "tutto", "tutti"
+        "il", "la", "lo", "le", "gli", "i", "un", "una", "uno", "di", "da", "in",
+        "su", "per", "con", "tra", "fra", "e", "o", "ma", "che", "è", "si", "non",
+        "mi", "ti", "ci", "vi", "ne", "a", "ai", "al", "del", "della", "dei",
+        "questo", "questi", "ho", "ha", "hanno", "sono", "era", "stasera",
+        "sempre", "anche", "più", "tutto", "tutti"
     }
     all_words = []
     for text in df["text"]:
-        words = str(text).lower().split()
-        for word in words:
+        for word in str(text).lower().split():
             word = word.strip(".,!?#@\"'()")
             word = word.replace("#pechinoexpress2026", "").replace("#pechinoexpress", "")
             if len(word) > 3 and word not in stopwords and not word.startswith("http"):
                 all_words.append(word)
-    from collections import Counter
     return dict(Counter(all_words).most_common(top_n))

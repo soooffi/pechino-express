@@ -77,9 +77,18 @@ sentiment-pechino-express/
 ├── requirements.txt        # Dipendenze Python
 ├── data/
 │   └── mock_tweets.py      # Generatore dati demo
+├── assets/                 # Immagini usate dall'app (es: logo titolo)
 └── utils/
     └── sentiment.py        # Logica NLP e analisi
 ```
+
+## 🎨 Immagine del titolo
+
+Vuoi usare il logo (o un’immagine personalizzata) come sfondo del titolo?
+1. Metti l’immagine in `assets/pechino_logo.png`
+2. Avvia l’app: se il file esiste verrà caricato automaticamente.
+
+> ✅ Consiglio: usa un PNG con sfondo trasparente o un’immagine orizzontale.
 
 ---
 
